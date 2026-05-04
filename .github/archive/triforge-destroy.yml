@@ -1,0 +1,27 @@
+name: Triforge Destroy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Pulumi
+        run: curl -fsSL https://get.pulumi.com | sh
+      - name: Add Pulumi to PATH
+        run: echo "$HOME/.pulumi/bin" >> $GITHUB_PATH
+      - name: Destroy Pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          pulumi login 's3://remote-state-h1?region=us-east-1'
+          pip install pulumi pulumi-aws
+          cd sagemkaer
+          pulumi stack select dev
+          pulumi destroy --yes

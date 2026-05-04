@@ -1,0 +1,30 @@
+# Project folder (if needed)
+iac-project
+checkpoint-notes
+
+# Keys / secrets
+*.pem
+*.key
+
+# Optional: specific compute key (if you want extra safety)
+ /compute/triforge-key.pem
+
+# Images / assets
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform lock file (optional but usually COMMITTED)
+.terraform.lock.hcl

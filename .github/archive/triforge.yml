@@ -1,0 +1,145 @@
+name: Triforge Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  pre-environment-setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Pulumi
+        run: curl -fsSL https://get.pulumi.com | sh
+
+      - name: Add Pulumi to PATH
+        run: echo "$HOME/.pulumi/bin" >> $GITHUB_PATH
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Check all env are setup
+        run: |
+          pulumi version
+          tofu version
+          terraform version
+
+  deploy-iac:
+    runs-on: ubuntu-latest
+    needs: pre-environment-setup
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          pulumi login 's3://remote-state-h1?region=us-east-1'
+          cd sagemkaer
+          pulumi stack select dev
+          pip install pulumi pulumi-aws
+          pulumi up --yes
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Deploy Terraform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          cd compute
+          terraform init
+          terraform plan
+          terraform apply --auto-approve
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v2
+
+      - name: Deploy OpenTofu
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          cd storage
+          tofu init
+          tofu plan
+          tofu apply -auto-approve
+
+  configure-ec2:
+    runs-on: ubuntu-latest
+    needs: deploy-iac
+
+    steps:
+      - name: Execute remote SSH commands
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          request_pty: false
+          script_stop: false
+          script: |
+            echo "Updating system"
+            sudo apt update -y
+            sudo apt upgrade -y
+
+            echo "Installing nginx and git"
+            sudo apt install -y nginx git
+
+            echo "Starting nginx"
+            sudo systemctl enable nginx
+            sudo systemctl start nginx
+
+            echo "Cloning repo"
+            if [ ! -d "Triforge" ]; then
+              git clone https://github.com/elijahu1/Triforge.git
+            fi
+
+            echo "Confirm repo exists"
+            ls -l Triforge
+
+            cd Triforge
+
+            echo "Fetching latest changes"
+            git -C /home/ubuntu/Triforge checkout -- .
+            git -C /home/ubuntu/Triforge pull origin main
+
+            echo "restarting Flask"
+            sudo systemctl restart triforge
+
+            echo "Setting up nginx config and linking"
+            sudo cp /home/ubuntu/Triforge/ui/triforge.nginx.conf /etc/nginx/sites-available/triforge
+            sudo ln -sf /etc/nginx/sites-available/triforge /etc/nginx/sites-enabled/
+            sudo nginx -t
+            sudo nginx -s reload
+
+            echo "Restart nginx"
+            sudo systemctl restart nginx
+
+  cleanup-crew:
+    runs-on: ubuntu-latest
+    needs: configure-ec2
+
+    steps:
+      - name: Cleanup workspace
+        run: |
+          echo "Cleaning up in progress...."
+          rm -rf *

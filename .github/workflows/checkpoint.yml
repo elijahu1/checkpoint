@@ -1,0 +1,43 @@
+name: checkpoint Pipeline
+
+on:
+  push:
+    branches: [eli]
+
+jobs:
+  sha-guard-01:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: sha-check
+        run: echo "running zizmor scan"
+
+      - name: Install zizmor
+        run: pip install zizmor==1.23.1
+
+      - name: Scan all yml files
+        run: |
+          zizmor .github/workflows --format text
+          zizmor .github/archive --format text
+
+  checksum-guard-02:
+    runs-on: ubuntu-22.04
+    needs: sha-guard-01
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Checksum-check
+        run: |
+
+  contraband-checkguard-03:
+    needs: checksum-guard-02
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Code-scan
+        run: |

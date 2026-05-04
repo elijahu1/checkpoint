@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Triforge Translator</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="chat-container">
+            <div class="status-bar" id="status-bar">
+                <span id="status">Ready</span>
+            </div>
+            <div class="chat-messages" id="chat-messages">
+                <div class="message ai-message">
+                    <div class="message-content">
+                        👋 Welcome to Triforge Translator<br><br>
+                        Type any English text and get it translated to Spanish.<br><br>
+                        <strong>Examples:</strong><br>
+                        <strong>Hello, how are you?</strong><br>
+                        <strong>Good morning, have a great day</strong><br>
+                        <strong>I love building things from scratch</strong><br><br>
+                        Powered by Helsinki-NLP on AWS SageMaker.
+                    </div>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <div class="input-wrapper">
+                    <input
+                        type="text"
+                        id="message-input"
+                        placeholder="Type in English..."
+                        onkeypress="if(event.key==='Enter') sendMessage()"
+                        autocomplete="off"
+                        autocorrect="off"
+                        autocapitalize="off"
+                        spellcheck="false"
+                    >
+                    <button class="send-btn" id="send-btn" onclick="sendMessage()">Translate</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/script.js"></script>
+</body>
+</html>
