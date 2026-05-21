@@ -1,10 +1,13 @@
 # Project folder (if needed)
 iac-project
-checkpoint-notes
+#checkpoint-notes
 
 # Keys / secrets
 *.pem
 *.key
+
+# wheels
+*.whl
 
 # Optional: specific compute key (if you want extra safety)
  /compute/triforge-key.pem

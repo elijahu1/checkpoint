@@ -1,0 +1,929 @@
+triforge = walls (AWS Seceret Manager, Pulumi State) no checks
+
+the ci/cd pipeline the following with spin up a mini CLI environment. 
+
+uses: appleboy/ssh-action@v1
+
+uses: actions/checkout@v4
+uses: opentofu/setup-opentofu@v2
+uses: hashicorp/setup-terraform@v3
+
+it is maintained by some guy and orgs on github.
+
+appleboy - mainted by some guy on github and there's the threat of him pushing some malicious code or something into the environment.
+
+supply-chain-attack: basically the attacker attacks the "SUPPLIER" and not the company itself.
+
+blog i read about: https://www.techtarget.com/whatis/feature/SolarWinds-hack-explained-Everything-you-need-to-know talks about sinkholing and some fail safe and some other things.
+
+actions/checkout
+Tier: Core infrastructure
+Trust level: Maximum
+If this breaks → GitHub is on fire
+appleboy/ssh-action
+Tier: Utility plugin
+Trust level: “Works great, but you own the risk”
+If it breaks → you debug it, not github
+
+congrats the whole "devops" community screwed itself over.
+
+for digets instead of going hardcodede we will be using a pattern 
+
+  - name: Build and push
+  id: build
+  uses: docker/build-push-action@...
+  with:
+    push: true
+
+- name: Verify
+  run: echo ${{ steps.build.outputs.digest }}
+
+  the build id so its steps.build.output.digest
+
+but now how do i implement a guard to block or inspect anything from applyboy once my pipeline runs cause shit happens bro anyone can get hacked.
+
+steps:
+  - uses: appleboy/ssh-action@<full-commit-sha>
+
+instead of @v1
+
+why?? because, commit hash shoes the exact commit or snapshot of that code before all hell break loose 
+a tag carries you along with all the pushes like a pacman -Syu a moving pointer
+
+This is called ACTION PINNING - #GUARD 01
+
+another issue i stopped was on my download pulumi curl command. 
+
+      - name: Install Pulumi
+        run: curl -fsSL https://get.pulumi.com | sh
+this curl flag basically says get pulumi silently, follow redirects, fail gracefully and once downloaded, "EXECUTE AT ONCE the | sh" THIS IS THE issue. i am giving a threat actor full rights to do whatever the fuck he or she wants if that url gets compromised.
+
+
+now in order to avoid this we will fist figure that we need a way to verify what we actually getting is legitimate which means we need to verify the hash. 
+this process is often called....
+
+Integrity verification
+Digest verification
+checksum verification 
+
+let's go with "checksum verification" the name sounds nice. 
+
+it's basically comparing what i ordered vs what i got.
+
+here is a script to run it 
+
+VERSION="3.120.0"
+
+curl -fsSLO https://get.pulumi.com/releases/sdk/pulumi-v${VERSION}-linux-x64.tar.gz
+curl -fsSLO https://get.pulumi.com/releases/sdk/pulumi-v${VERSION}-linux-x64.tar.gz.sha256
+
+sha256sum -c pulumi-v${VERSION}-linux-x64.tar.gz.sha256
+
+branch protection -> this is a mechanism that acts as guards at a checkpoint so no hillybilly can just "mistakenly" push code to main. in which everyone would have a branch of thier own. this is the concept all SWEs use. and there's a list used for this type of thing so we can know what we looking for.
+
+Checksum verification
+Code safety scanning
+Will it break (ephemeral CI)
+Pinned SHAs not floating tags
+
+but we have an issue 
+triforge rn is push to main pipeline runs something breaks, debug, run again 
+checkpoint will be personal branch pr review to sub or remove sub and review straight to ephemeral ci this spins up a test environment that mimics ours. test if it works fine if all works destroy asap and pr to mainted
+
+now moving to empheral CI take note that it will need access to the aws environment to spin up the test environment but that's annoying and not secure and more typing passwords. so instead of that, we will use an ec2 profile to dodge the whole passwords issue entirely.
+
+The EC2 proves its identity by being an EC2 — AWS knows who it is, hands it temporary credentials automatically.
+That same mechanic exists for GitHub Actions. It's called OIDC — OpenID Connect.
+
+so here are the thing we discussed so far
+
+Pinned action SHAs — no floating tags
+Checksum verification — no curl pipe sh
+Branch protection — no direct pushes to main
+PR reviews — human guards at the gate
+Ephemeral CI — spin up, test, destroy
+OIDC — no long lived credentials anywhere
+
+code-scanning.yml - trivy
+OIDC config (this gets configured on the IaC side and not the pipeline side of things)
+test-environment.yml - ephemeral  
+
+the rest live on the .github/workflows/ dir
+
+WORKFLOW
+checkpoint.yml → 3 guards in sequence → triggers test-environment.yml → ephemeral CI spins up, tests, destroys → PR can be reviewed → merge to main.
+
+here are the job names on our checkpoint.yml
+checkpoint.yml runs.
+sha-guard-01 
+checksum-guard-02 
+contraband-check-guard-03
+
+here is the checklist. 
+checksum
+sha-check
+code scan 
+
+Gitpod -> this is a runner. a free and secure alternative that's time consuming and costly to githubs ubuntu-latest
+
+name: checkpoint Pipeline
+
+on:
+  push:
+    branches: [eli]
+
+jobs:
+  sha-guard-01:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: sha-check
+        run: |
+
+  checksum-guard-02:
+    runs-on: ubuntu-22.04
+    needs: sha-guard-01
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Checksum-check
+        run: |
+
+  contraband-checkguard-03:
+    needs: checksum-guard-02
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Code-scan
+        run: |
+
+this code is a snippet of what is to come..i will also be using zizmor to scan the triforge.yml file is it passes our checklist we listed at the top. zizmor specifically scans unpinned actions the action/appleboy@v1 "this is unpinned" it has no commit hash it's a moving pointer. 
+
+
+we are verifying terraform checksum first we need to find the checksums: found this blog post https://www.greenreedtech.com/hashicorp-terraform-checksum-verification/
+
+ a signature file signed with their PGP key. terraform provides this. i have no fucking idea what that is but from research, so i think i now understand why its the old school defacto, Hashes alone are weak if an attacker compromises BOTH:
+
+the file
+the website showing the hash
+
+Then you download malware + matching fake hash. Congrats, you are cooked.
+
+PGP signatures are stronger because the attacker would also need the vendor’s PRIVATE signing key.
+
+That’s much harder.
+
+This is why serious infra/security tooling uses signing:
+
+HISTORY OF PGP && GPG && SIGSTORE AND COSIGN 
+Alright. Full timeline. Because this stuff is basically Linux security civilization lore.
+
+---
+
+# The Ancient Era — “How do we trust software?”
+
+Back in the early internet days, people realized:
+
+```text id="5fjlwm"
+Downloading files from the internet is sketchy as hell.
+```
+
+Anybody could:
+
+* modify files
+* impersonate developers
+* inject malware
+* MITM downloads
+
+So cryptography became the answer.
+
+---
+
+# PGP — The OG
+
+In 1991, Phil Zimmermann created:
+
+## PGP
+
+Pretty Good Privacy
+
+This was revolutionary.
+
+Before PGP:
+
+* encryption was mostly military/government stuff
+* strong crypto was heavily restricted
+
+PGP gave regular people:
+
+* encryption
+* signing
+* identity verification
+
+using:
+
+* public keys
+* private keys
+
+---
+
+# Core idea
+
+You create TWO keys:
+
+## Public key
+
+You share this openly.
+
+## Private key
+
+You NEVER share this.
+
+---
+
+# Signing flow
+
+You sign a file with your PRIVATE key:
+
+```text id="ks4v6t"
+release.tar.gz -> release.tar.gz.sig
+```
+
+Others verify using your PUBLIC key.
+
+If verification succeeds:
+
+* file unchanged
+* file authentic
+
+Boom.
+
+Supply-chain security born.
+
+---
+
+# The “Web of Trust”
+
+PGP had this very nerdy anarchist idea:
+
+```text id="g70n1i"
+No central authority.
+Humans verify humans.
+```
+
+People literally met at conferences to:
+
+* compare fingerprints
+* verify IDs
+* sign each other’s keys
+
+Called:
+
+## Key Signing Parties
+
+Peak Linux wizard culture.
+
+---
+
+# Then came legal chaos
+
+US government treated strong crypto almost like weapons exports back then.
+
+PGP had licensing/patent drama.
+
+So the GNU people said:
+
+> “Fine. We’ll build our own.”
+
+---
+
+# GPG Arrives
+
+GNU Privacy Guard.
+
+Command:
+
+```bash id="llhz7f"
+gpg
+```
+
+This became:
+
+* free
+* open source
+* Linux-native
+* OpenPGP-compatible
+
+This is what almost every distro/tooling ecosystem uses now.
+
+---
+
+# So what is GPG REALLY?
+
+GPG is:
+
+## a tool for:
+
+* encryption
+* decryption
+* signing
+* verification
+* key management
+
+using OpenPGP standards.
+
+---
+
+# Why GPG became huge
+
+Because Linux distributions needed trust.
+
+Imagine:
+
+* millions of packages
+* mirrors worldwide
+* random servers
+* no HTTPS everywhere yet
+
+How do you know packages are real?
+
+So package managers evolved around signatures.
+
+Examples:
+
+* `apt`
+* `rpm`
+* `pacman`
+* `portage`
+
+all heavily use signed metadata.
+
+---
+
+# Example real-world flow
+
+## Debian/Ubuntu
+
+When you run:
+
+```bash id="y1n5sx"
+apt update
+```
+
+APT checks:
+
+* repository metadata
+* GPG signatures
+* trusted keys
+
+before installing packages.
+
+That’s why expired repo keys break updates.
+
+You’ve probably seen:
+
+```text id="4m1sv5"
+NO_PUBKEY
+```
+
+That’s GPG infrastructure yelling:
+
+> “I don't trust this repo.”
+
+---
+
+# The Problems with GPG
+
+Now comes the pain.
+
+GPG is respected.
+
+But HOLY HELL the UX.
+
+---
+
+## Problem 1 — Key management
+
+People lose:
+
+* private keys
+* passphrases
+* backups
+
+constantly.
+
+---
+
+## Problem 2 — Trust is confusing
+
+```text id="1v7w6z"
+ultimate trust
+full trust
+marginal trust
+unknown trust
+```
+
+Junior engineers look at this like ancient rune magic.
+
+---
+
+## Problem 3 — Keyservers became cursed
+
+Public keyservers became:
+
+* polluted
+* spammed
+* unreliable
+
+There were even key poisoning attacks.
+
+---
+
+## Problem 4 — CI/CD sucks with long-lived private keys
+
+Modern infra pipelines hate:
+
+* manually managed secrets
+* static signing keys
+* permanent credentials
+
+Cloud-native philosophy became:
+
+```text id="jlwmu4"
+Ephemeral identity > permanent secrets
+```
+
+That changed everything.
+
+---
+
+# Modern Era — Sigstore
+
+Then came:
+
+[Sigstore](https://www.sigstore.dev?utm_source=chatgpt.com)
+
+This is basically:
+
+> “What if signing software DIDN’T suck?”
+
+Created by people from:
+
+* Kubernetes ecosystem
+* Linux Foundation circles
+* supply-chain security world
+
+---
+
+# What Sigstore changes
+
+Instead of:
+
+```text id="czlk6u"
+Download my public key manually.
+```
+
+Sigstore says:
+
+```text id="kz4z5o"
+Use your identity provider.
+```
+
+Examples:
+
+* GitHub Actions identity
+* Google identity
+* Microsoft identity
+* OIDC tokens
+
+---
+
+# Enter Cosign
+
+[Cosign](https://docs.sigstore.dev/cosign/overview/?utm_source=chatgpt.com)
+
+Cosign is the actual signing tool.
+
+Like:
+
+* GPG = old signing tool
+* Cosign = modern cloud-native signing tool
+
+---
+
+# Example Cosign flow
+
+Container image:
+
+```bash id="0rr5qz"
+docker build -t myapp .
+```
+
+Sign it:
+
+```bash id="mx14y0"
+cosign sign myimage
+```
+
+Verification:
+
+```bash id="o9wnxw"
+cosign verify myimage
+```
+
+---
+
+# Why infra engineers love Cosign
+
+Because it works naturally with:
+
+* Kubernetes
+* OCI registries
+* GitHub Actions
+* ephemeral credentials
+* OIDC federation
+* keyless signing
+
+---
+
+# Keyless signing
+
+THIS is the big innovation.
+
+Old world:
+
+```text id="55ntj4"
+Generate private key.
+Store private key forever.
+Protect private key forever.
+Rotate keys manually.
+Cry eventually.
+```
+
+New world:
+
+```text id="jq1h0d"
+Temporary identity token signs artifact.
+```
+
+Much cleaner for automation.
+
+---
+
+# Rekor — transparency log
+
+Sigstore also introduced:
+
+## Rekor
+
+A public tamper-evident transparency log.
+
+Meaning:
+
+* signatures become publicly auditable
+* malicious signatures are detectable
+* ecosystem trust improves
+
+Inspired partly by Certificate Transparency systems.
+
+---
+
+# So what's used where?
+
+| Ecosystem               | Common Tech                 |
+| ----------------------- | --------------------------- |
+| Linux distros           | GPG                         |
+| Git signing             | GPG / SSH / Sigstore        |
+| OCI containers          | Cosign                      |
+| Kubernetes security     | Cosign                      |
+| Modern CI/CD provenance | Sigstore                    |
+| Legacy package systems  | GPG                         |
+| Release verification    | GPG + Sigstore increasingly |
+
+---
+
+# The philosophical difference
+
+## GPG philosophy
+
+```text id="qmd1of"
+Humans manage trust manually.
+```
+
+Decentralized.
+Very hacker culture.
+Very cypherpunk.
+
+---
+
+## Sigstore philosophy
+
+```text id="62iz4s"
+Cloud identity systems manage trust automatically.
+```
+
+Automation-first.
+CI/CD-first.
+Enterprise-friendly.
+
+---
+
+# The current reality
+
+GPG is NOT dead.
+
+Far from it.
+
+But Sigstore/Cosign is becoming the future for:
+
+* supply-chain security
+* SBOM attestation
+* artifact provenance
+* Kubernetes ecosystems
+
+Especially after:
+
+* SolarWinds
+* xz backdoor panic
+* dependency-chain attacks
+
+The industry basically realized:
+
+```text id="c1rlsi"
+“We need verifiable software origins.”
+```
+
+That’s the modern movement you’re watching happen in real time.
+
+i need to go deeper into this PGP-GPG-cosing-sigstore LORE
+
+ran into some roadblocks with the whole GPG, PGP thing and decided to take a set back. 
+Terraform — full GPG verification (HashiCorp makes it easy, documented)
+Pulumi — GPG verification (you have the key)
+OpenTofu — SHA256 only for now, document why in the script as a comment
+
+
+"Pre-built image on GHCR → Trivy scans the image → pipeline pulls and runs it → no manual downloads, no GPG juggling at runtime." fuck
+
+so with registry and rise of container the whole checksum shit is at this point a waste of space. trivy handles all that fine and well why use a katana and learn 5 diff moves? you have a rifle
+
+name: checkpoint Pipeline
+
+on:
+  push:
+    branches: [eli]
+
+jobs:
+  sha-guard-01:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: sha-check
+        run: echo "running zizmor scan"
+
+      - name: Install and Check hash
+        run: python3 -m pip install --require-hashes -r requirements-zizmor.txt
+
+      - name: Scan all yml files
+        run: |
+          zizmor .github/workflows --format text
+          zizmor .github/archive --format text
+
+  contraband-checkguard-02:
+    needs: checksum-guard-02
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Code-scan
+        run: |
+
+so this is the new updated code. we removed the previous checksum-guard-02 as you can see.
+
+seems we will have to edit our previous triforge.yml file. Can trivy scan images before hand?? YES. 
+
+Who builds the image? — Checkpoint builds and maintains it. It's Checkpoint's job to provide a verified, tool-baked image.
+Who uses the image? — Any project that wants zero trust tooling, including Triforge, pulls it from GHCR.
+
+so now we will be building our images. why?
+shit that some guy in Dagestan discovered last friday. mehn this jokes gotta go on the case study lol my voice nice as hell 
+
+so we cannot cut the shaff unless we wanna have front row tickets to a new reporter asking "why and how did you fuck up this badly"
+
+the images would be kept in a images dir on the project root.
+
+now i will be building the ghcr-deploy.yml which runs the pipeline for deploying our tools into a docker image and shoving it on ghcr so we have "OUR OWN SHIT" and not some rando guys stuff...but before that we need to build our Dockerfile first before focusing on deployment.
+
+Dockerfile
+''''''
+# syntax=docker/dockerfile:1
+
+FROM debian:bookworm-slim AS builder
+
+ARG TARGETARCH=amd64
+
+ARG TERRAFORM_VERSION=1.15.2
+ARG OPENTOFU_VERSION=1.11.6
+ARG PULUMI_VERSION=3.237.0
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    unzip \
+    tar \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp/build
+
+
+# =========================================================
+# ARCH MAPPING
+# =========================================================
+
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) \
+            TF_ARCH="amd64"; \
+            TOFU_ARCH="amd64"; \
+            PULUMI_ARCH="x64"; \
+            ;; \
+        arm64) \
+            TF_ARCH="arm64"; \
+            TOFU_ARCH="arm64"; \
+            PULUMI_ARCH="arm64"; \
+            ;; \
+        *) \
+            echo "unsupported architecture: ${TARGETARCH}" >&2; \
+            exit 1; \
+            ;; \
+    esac; \
+    echo "${TF_ARCH}" > /tmp/tf_arch; \
+    echo "${TOFU_ARCH}" > /tmp/tofu_arch; \
+    echo "${PULUMI_ARCH}" > /tmp/pulumi_arch
+
+
+# =========================================================
+# TERRAFORM (SHA256 verify)
+# =========================================================
+
+RUN TF_ARCH="$(cat /tmp/tf_arch)" && \
+    curl -fsSLo terraform.zip \
+    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${TF_ARCH}.zip" && \
+    curl -fsSLo terraform_SHA256SUMS \
+    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" && \
+    grep "terraform_${TERRAFORM_VERSION}_linux_${TF_ARCH}.zip" terraform_SHA256SUMS | sha256sum -c - && \
+    unzip -q terraform.zip && \
+    install -m 0755 terraform /usr/local/bin/terraform
+
+
+# =========================================================
+# OPENTOFU (SHA256 verify)
+# =========================================================
+
+RUN TOFU_ARCH="$(cat /tmp/tofu_arch)" && \
+    curl -fsSLo tofu.zip \
+    "https://github.com/opentofu/opentofu/releases/download/v${OPENTOFU_VERSION}/tofu_${OPENTOFU_VERSION}_linux_${TOFU_ARCH}.zip" && \
+    curl -fsSLo tofu_SHA256SUMS \
+    "https://github.com/opentofu/opentofu/releases/download/v${OPENTOFU_VERSION}/tofu_${OPENTOFU_VERSION}_SHA256SUMS" && \
+    grep "tofu_${OPENTOFU_VERSION}_linux_${TOFU_ARCH}.zip" tofu_SHA256SUMS | sha256sum -c - && \
+    unzip -q tofu.zip && \
+    install -m 0755 tofu /usr/local/bin/tofu
+
+
+# =========================================================
+# PULUMI (SHA256 verify, x64 naming)
+# =========================================================
+
+RUN PULUMI_ARCH="$(cat /tmp/pulumi_arch)" && \
+    curl -fsSLo pulumi.tar.gz \
+    "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-v${PULUMI_VERSION}-linux-${PULUMI_ARCH}.tar.gz" && \
+    curl -fsSLo pulumi_checksums.txt \
+    "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/pulumi-${PULUMI_VERSION}-checksums.txt" && \
+    grep "pulumi-v${PULUMI_VERSION}-linux-${PULUMI_ARCH}.tar.gz" pulumi_checksums.txt | sha256sum -c - && \
+    tar -xzf pulumi.tar.gz && \
+    install -m 0755 pulumi/pulumi /usr/local/bin/pulumi
+
+
+# =========================================================
+# FINAL RUNTIME IMAGE
+# =========================================================
+
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# =========================================================
+# COPY BINARIES ONLY
+# =========================================================
+
+COPY --from=builder /usr/local/bin/terraform /usr/local/bin/terraform
+COPY --from=builder /usr/local/bin/tofu /usr/local/bin/tofu
+COPY --from=builder /usr/local/bin/pulumi /usr/local/bin/pulumi
+
+
+# =========================================================
+# WORKSPACE
+# =========================================================
+
+WORKDIR /workspace
+
+CMD ["bash"]
+''''''
+
+why did i exclude gpg verification? yea i ain't going magic unicorn hunting too much time to find let's go with sha256 that's fine. i made some mistakes with the arch type for pulumi. used amd64 instead of x64. also asked chatgpt to make my ugly ass code beautiful. 
+ghcr-deploy.yml
+
+so i wanna get the commit hash for our github action runner. 
+
+git ls-remote https://github.com/docker/login-action.git refs/tags/v3 -> docker/login-action@v3
+
+git ls-remote https://github.com/docker/build-push-action.git refs/tags/v6 -> docker/build-push-action@v6
+
+and lastly we will verify attestation basically a way to know if this image was tampered with but that's for a later time for now we will use normal digest verification.
+''''''
+
+''''''
+
+still weird most "DevOps engineers" go with the "“trust me bro” supply chain engineering." i mean they aren't lazy they just do it. Me? why am i different? i am the laziest under heaven off course why i sometimes go "trust me bro"
+
+now let's explain the whole digest thingy..
+
+Pinned action SHA → exact code, not whatever @v3 points to today
+Image digest → exact image, not whatever :latest points to today
+
+it doesn't pull per tag but commit hash which is more secure.
+
+WORKFLOW --- as of this point i am mad confused i don't even know what i am doing rn.
+
+learnt how to pin a tool using apt-get had no idea ubuntu could do that 
+sudo apt-get install -y tool=version 
+
+sudo apt-get install -y trivy=0.70.0
+
+now we will be moving onto OIDC first then we rewirte checkpoint.yml to pull from our ghcr. for OIDC we will be using compute folder which means terraform.
+
+# GitHub OIDC Provider
+resource "aws_iam_openid_connect_provider" "github" {
+  url             = "https://token.actions.githubusercontent.com"
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+}
+
+# IAM Role for GitHub Actions
+resource "aws_iam_role" "github_actions" {
+  name = "checkpoint-github-actions"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.github.arn
+      }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = "repo:elijahu1/checkpoint:ref:refs/heads/*"
+        }
+      }
+    }]
+  })
+}
+
+# Attach only what Checkpoint needs
+resource "aws_iam_role_policy_attachment" "checkpoint" {
+  role       = aws_iam_role.github_actions.name
+  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+this above is the OIDC code that will allow compute to talk to AWS - GITHUB without the need for passkeys or secrets eevrytime.
+
+sts:AssumeRoleWithWebIdentity: so When GitHub Actions runs, it generates a JWT token signed by GitHub. Your pipeline sends that token to AWS STS and says "I want to assume this role." STS checks the token against the OIDC provider, verifies it's legitimate, and if the trust policy allows it hands back temporary credentials.
+
+condition: GitHub Actions running from elijahu1/checkpoint can assume this role. Not any other repo, not any other GitHub user, not any external system. we lock it down at the pipeline and repo level
+
+ now why PowerUserAccess and not AdministratorAccess?: rbac and least priv you gave it sudo but not root. some RBAC shit
+
+ ah fucking shit i can't keep the ODIC code inside main.tf as "best practices" fuck 
+ gonna touch oidc.tf inside compute
+
+ now we will be getting OIDC and compute to communicate with each other.
+
+ NOTE: i added aud to the sts incase of issues of sts saying "token was made just for me" yea entitled nigga this way i avoid giving it another guys shit.

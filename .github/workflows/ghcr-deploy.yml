@@ -1,0 +1,76 @@
+name: ghcr-deploy Pipeline
+
+on:
+  push:
+    branches: 
+      - main
+    paths: 
+      - ".github/workflows/ghcr-deploy.yml"
+      - "images/Dockerfile"
+
+jobs:
+  Dockerfile-runner-Login-Deploy:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Log in to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+     - name: Install Trivy securely
+       run: |
+         wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | \
+        gpg --dearmor | \
+        sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
+        sudo tee /etc/apt/sources.list.d/trivy.list
+
+        sudo apt-get update
+        sudo apt-get install -y trivy=0.70.0
+
+        trivy --version
+
+     - name: Hold Trivy version
+       run: |
+         sudo apt-mark hold trivy
+         sudo apt-mark showhold
+
+      - name: Build Locally
+        id: build-push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            ghcr.io/${{ github.repository }}:v0.0.1
+            ghcr.io/${{ github.repository }}:latest
+
+      - name: trivy-scan
+        run: |
+          trivy image \
+          --scanners vuln,secret,misconfig,license \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          --format json \
+          -o trivy-results.json \
+          ghcr.io/${{ github.repository }}:latest
+
+      - name: Push image to GHCR
+        run: |
+          docker push ghcr.io/${{ github.repository }}:v0.0.1
+          docker push ghcr.io/${{ github.repository }}:latest
+
+      - name: Verify image digest
+        run: |
+          docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/${{ github.repository }}:latest
+
+
+
+

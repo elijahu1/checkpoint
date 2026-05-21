@@ -14,30 +14,32 @@ jobs:
       - name: sha-check
         run: echo "running zizmor scan"
 
-      - name: Install zizmor
-        run: pip install zizmor==1.23.1
+      - name: Install and Check hash
+        run: python3 -m pip install --require-hashes -r requirements-zizmor.txt
 
       - name: Scan all yml files
         run: |
           zizmor .github/workflows --format text
           zizmor .github/archive --format text
 
-  checksum-guard-02:
-    runs-on: ubuntu-22.04
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+           role-to-assume: arn:aws:iam::$ACCOUNT_ID:role/checkpoint-github-actions
+           aws-region: us-east-1
+
+
+
+  contraband-checkguard-02:
     needs: sha-guard-01
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Checksum-check
-        run: |
-
-  contraband-checkguard-03:
-    needs: checksum-guard-02
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Code-scan
+      - name: Pull docker image
+        run: |
+          docker pull ghcr.io/${{ github.repository }}:latest
+
+      - name: Image-scan
         run: |

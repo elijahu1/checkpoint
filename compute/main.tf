@@ -85,8 +85,6 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2role.name
 }
 
-
-
 ## NETWORKING
 
 resource "aws_default_vpc" "default" {}
