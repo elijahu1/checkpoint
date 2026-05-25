@@ -19,8 +19,8 @@ jobs:
 
       - name: Scan all yml files
         run: |
-          zizmor .github/workflows --format text
-          zizmor .github/archive --format text
+          zizmor .github/workflows --format github
+          zizmor .github/archive --format github
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
